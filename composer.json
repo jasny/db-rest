@@ -1,0 +1,34 @@
+{
+    "name": "jasny/db-rest",
+    "type": "library",
+    "description": "DB layer for RESTful services",
+    "keywords": ["database", "db", "rest", "restful"],
+    "license": "MIT",
+    "homepage": "http://jasny.github.com/db-rest",
+    "authors": [
+        {
+            "name": "Arnold Daniels",
+            "email": "arnold@jasny.net",
+            "homepage": "http://www.jasny.net"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/jasny/db-rest/issues",
+        "source": "https://github.com/jasny/db-rest"
+    },
+    "require": {
+        "php": ">=5.5.0",
+        "jasny/db": "^2.1",
+        "guzzlehttp/guzzle": "^6.0",
+        "doctrine/inflector": "^1.0"
+    },
+    "require-dev": {
+        "jasny/php-code-quality": "^1.0",
+        "jasny/php-functions": "^2.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Jasny\\DB\\REST\\": "src/"
+        }
+    }
+}
