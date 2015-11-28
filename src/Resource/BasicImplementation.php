@@ -2,9 +2,9 @@
 
 namespace Jasny\DB\REST\Resource;
 
-use Jasny\DB\FieldMapping,
-    Jasny\DB\Entity,
-    Jasny\DB\REST\Sorted;
+use Jasny\DB\Entity;
+use Jasny\DB\FieldMapping;
+use Jasny\DB\REST\Sorted;
 
 /**
  * Static methods to interact with a dataset (as resource)
@@ -13,89 +13,93 @@ use Jasny\DB\FieldMapping,
  * @license https://raw.github.com/jasny/db-mongo/master/LICENSE MIT
  * @link    https://jasny.github.io/db-mongo
  */
-trait Basics
+trait BasicImplementation
 {
-    use Entity\Basics;
-    
+    use Entity\Implementation;
+
     /**
-     * Get the data that needs to be saved in the DB
+     * Get the HTTP method for saving the resource
      * 
-     * @return array
+     * @return string
      */
-    protected function toData()
+    protected function getSaveMethod()
     {
-        $values = $this->getValues();
-        if ($this instanceof FieldMapping) $values = static::mapToFields($values);
-        
-        return $values;
-    }
-    
-    /**
-     * Save the document
-     * 
-     * @return $this
-     */
-    public function save()
-    {
-        if (!$this->_id instanceof \RESTId) $this->_id = new \RESTId($this->_id);
-        if ($this instanceof Sorted && method_exists($this, 'prepareSort')) $this->prepareSort();
-        
-        static::getCollection()->save($this->toData());
-        return $this;
-    }
-    
-    /**
-     * Delete the document
-     * 
-     * @return $this
-     */
-    public function delete()
-    {
-        static::getCollection()->remove(['_id' => $this->_id]);
-        return $this;
+        return 'PUT';
     }
 
     /**
-     * Check no other document with the same value of the property exists
+     * Update properties from data
      * 
-     * @param string $property
-     * @return boolean
+     * @param array $data
      */
-    public function hasUnique($property)
+    protected function updateFromData($data)
     {
-        if (!isset($this->$property)) return true;
-        return !static::exists(['_id(not)' => $this->_id, $property => $this->$property]);
-    }
-    
-    
-    /**
-     * Prepare result when casting object to JSON
-     * 
-     * @return object
-     */
-    public function jsonSerialize()
-    {
-        $this->expand();
-        
-        $values = $this->getValues();
-        
-        foreach ($values as &$value) {
-            if ($value instanceof \DateTime) $value = $value->format(\DateTime::ISO8601);
-            if ($value instanceof \RESTId) $value = (string)$value;
+        if ($this instanceof FieldMapping) {
+            $data = $this->mapFromFields($data);
         }
         
-        return (object)$values;
+        if ($this instanceof Entity\Identifiable) {
+            $prop = static::getIdProperty();
+            
+            if (!isset($data[$prop])) {
+                $class = get_called_class();
+                trigger_error("Response data can't be identified as this $class resource", E_USER_NOTICE);
+                return;
+            }
+            
+            if ($this->getId() && $data[$prop] !== $this->getId()) {
+                throw new \Exception("Response has $prop '{$data[$prop]}', while " .
+                    preg_replace('/^.*\\\\/', '', get_called_class()) . " has $prop '" . $this->getId() . "'");
+            }
+        }
+        
+        // Using closure to prevent setting protected methods
+        $set = function($entity) use ($data) {
+            foreach ($data as $key=>$value) {
+                $entity->$key = $value;
+            }
+        };
+        $set->bindTo(null);
+
+        $set($this);
+        
+        if ($this instanceof Entity\ChangeAware && method_exists($this, 'markAsPersisted')) {
+            $this->markAsPersisted();
+        }
     }
     
     /**
-     * Convert loaded values to an entity
+     * Save the resource.
      * 
-     * @param array $values
-     * @return static
+     * @param array $opts  Options are passed to the request
+     * @return $this
      */
-    public static function fromData($values)
+    public function save(array $opts = [])
     {
-        if (is_a(get_called_class(), 'Jasny\DB\FieldMapping', true)) $values = static::mapFromFields($values);
-        return static::entityFromData($values);
+        if ($this instanceof Sorted && method_exists($this, 'prepareSort')) $this->prepareSort();
+        
+        $opts['data'] = $this->toData();
+        $opts['parse'] = 'application/json';
+        
+        $result = static::getDB()->request($this->getSaveMethod(), static::getUri(), $opts);
+        if ($result) $this->updateFromData($result);
+        
+        return $this;
+    }
+    
+    /**
+     * Delete the resource
+     * 
+     * @return $this
+     */
+    public function delete(array $opts = [])
+    {
+        if (!$this instanceof Entity\Identifiable) {
+            throw new Exception("Unable to delete. " . get_called_class() . " isn't identifiable");
+        }
+        
+        static::getDB()->delete(static::getUri(), $opts);
+
+        return $this;
     }
 }

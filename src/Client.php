@@ -14,9 +14,12 @@ use Jasny\DB\Connection;
  * Instances of this class are used to interact with the RESTfull data source.
  * 
  * <code>
- *   $db = new Jasny\DB\REST\Client('http://api.example.com');
+ *   $db = new Jasny\DB\REST\Client('http://api.example.com', ['headers' => ['Content-Type' => 'application/json']]);
  *   $fooSet = $db->get('/foo/', ['parse' => 'application/json']);
+ * 
  *   $foo = $db->get('/foo/:id', ['query' => ['id' => 10], 'parse' => 'application/json']);
+ *   $foo->title = 'Hello World';
+ *   $foo->save();
  * </code>
  * 
  * @author  Arnold Daniels <arnold@jasny.net>
@@ -36,11 +39,16 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
     /**
      * Class constructor
      * 
-     * @param array|string $config  Settings or base uri
+     * @param string $baseUri (may be omitted)
+     * @param array  $config  Settings
      */
-    public function __construct($config)
+    public function __construct($baseUri, array $config = [])
     {
-        if (is_string($config)) $config = ['base_uri' => $config];
+        if (is_string($baseUri)) {
+            $config['base_uri'] = $baseUri;
+        } else {
+            $config = $baseUri;
+        }
         
         if (!isset($config['handler'])) $config['handler'] = HandlerStack::create();
         $config['handler']->unshift($this->bindUriMiddleware(), 'bind_uri');
@@ -49,41 +57,118 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
         
         parent::__construct($config);
     }
-    
+
+    /**
+     * Do a HTTP request
+     * 
+     * @param string $method
+     * @param string $uri
+     * @param array  $options
+     * @return \GuzzleHttp\Promise\PromiseInterface|Response
+     */
+    public function requestAsync($method, $uri = null, array $options = [])
+    {
+        if (isset($options['data'])) {
+            if (in_array($method, ['GET', 'HEAD', 'OPTIONS'])) {
+                $options['query'] = $options['data'];
+                unset($options['data']);
+            } else {
+                $this->applyPostData($options);
+            }
+        }
+        
+        return parent::requestAsync($method, $uri, $options);
+    }
+
+    /**
+     * Create a request object
+     * @ignore
+     * 
+     * @param string $method
+     * @param string $object
+     * @param array  $query
+     * @return Request
+     */
+    public function createRequest($method, $uri, $query)
+    {
+        $uri = $thist->getConfig('base_uri') . $uri;
+        return new Request($method, $db::bindUri($uri, $query));
+    }
+
+    /**
+     * Apply 'data' option based on content type
+     * 
+     * @param array $options
+     */
+    protected function applyPostData(&$options)
+    {
+        $headers = (isset($options['headers']) ? $options['headers'] : []) + $this->getConfig('headers');
+        $contentType = isset($headers['Content-Type']) ? $headers['Content-Type'] : null;
+
+        switch ($contentType) {
+            case 'application/json':
+                $options['json'] = $options['data'];
+                break;
+            case 'multipart/formdata':
+                array_walk($options['data'], function(&$value, $name) {
+                    $value = ['name' => $name, 'contents' => $value];
+                });
+                $options['multipart'] = $options['data'];
+                break;
+            case 'x-www-form-urlencoded':
+                $options['form_params'] = $options['data'];
+                break;
+            default:
+                if (!isset($contentType)) {
+                    trigger_error("Don't know how to encode data, Content-Type header isn't set", E_USER_WARNING);
+                }
+                $options['body'] = $options['data'];
+        }
+
+        unset($options['data']);
+    }
     
     /**
      * Add filter to request paramaters
      * 
-     * @param array $query
      * @param array $filter
+     * @return array
      */
-    public static function addFilterToQuery(array &$query, $filter)
+    public function filterToQuery($filter)
     {
-        $query += $filter;
+        return (array)$filter;
     }
     
     /**
      * Add filter to request paramaters
      * 
-     * @param array        $query
      * @param string|array $sort
+     * @return array
      */
-    public static function addSortToQuery(array &$query, $sort)
+    public function sortToQuery($sort)
     {
-        $query['sort'] = $sort;
+        return isset($sort) ? compact('sort') : [];
     }
     
     /**
      * Add filter to request paramaters
      * 
-     * @param array $query
      * @param array $limit
+     * @return array
      */
-    public static function addLimitToQuery(array &$query, $limit)
+    public function limitToQuery($limit)
     {
-        list($limit, $offset) = (array)$limit + [null, null];
-        if (!empty($limit)) $query['limit'] = $limit;
-        if (!empty($offset)) $query['offset'] = $offset;
+        if (!isset($limit)) return [];
+        if (!is_array($limit)) return compact('limit');
+        
+        if (is_int(key($limit))) {
+            $keys = count($limit) === 1 ? ['limit'] : ['limit', 'offset'];
+            return array_combine($keys, $limit);
+        }
+        
+        // Only allow specific keywords for security reasons
+        $keys = ['limit', 'offset', 'page', 'cursor'];
+        return array_intersect_key($limit, array_fill_keys($keys, $limit));
     }
     
     
@@ -106,6 +191,9 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
                     $data = static::parseMultipartFormData((string)$request->getBody());
                 } elseif ($contentType === 'application/json') {
                     $data = json_decode((string)$request->getBody());
+                } elseif ($contentType === 'x-www-form-urlencoded') {
+                    $data = [];
+                    parse_str((string)$request->getBody(), $data);
                 }
                 
                 $url = static::bindUri($tplPath, $query, isset($data) ? $data : null);
@@ -175,7 +263,8 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
             return function (Request $request, array $options) use ($handler) {
                 $promise = $handler($request, $options);
                 
-                return $promise->then(function(Response $response) {
+                return $promise->then(function(Response $response) use ($request) {
+                    $response->request = $request;
                     $this->lastResponse = $response;
                     return $response;
                 });
@@ -210,9 +299,9 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
                 $request = $request->withHeader('Accept', "{$options['parse']}; q=1.0, text/plain; q=0.5");
                 
                 $promise = $handler($request, $options);
-                
-                return $promise->then(function(Response $response) use ($request) {
-                    return $this->parseResponse($request, $response);
+                    
+                return $promise->then(function(Response $response) use ($request, $options) {
+                    return $this->parseResponse($request, $response, $options);
                 });
             };
         };
@@ -223,28 +312,15 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
      * 
      * @param Request  $request
      * @param Response $response
-     * @return \stdClass
+     * @param array    $options
+     * @return mixed
      */
-    protected function parseResponse(Request $request, Response $response)
+    protected function parseResponse(Request $request, Response $response, array $options)
     {
-        list($accept) = preg_replace('/\s*[,;].*/', '', $request->getHeader('Accept'));
-        list($contentType) = preg_replace('/\s*;.*$/', '', $response->getHeader('Content-Type')) + [null];
+        $this->parseResponseAssert($request, $response, $options);
+        
+        list($contentType) = preg_replace('/\s*;.*$/', '', $response->getHeader('Content-Type')) + [$options['parse']];
         $status = $response->getStatusCode();
-        
-        // Only JSON is currently supported
-        if ($accept !== 'application/json') {
-            throw new \Exception("Parsing is only supported for 'application/json', not '{$accept}'");
-        }
-        
-        if (!isset($contentType)) {
-            trigger_error("Server response doesn't specify the content type, assuming {$accept}", E_USER_NOTICE);
-            $contentType = $accept;
-        }
-
-        if (!in_array($contentType, [$accept, 'text/plain'])) {
-            $message = "Server responded with '$contentType', while expecting '$accept'";
-            throw new InvalidContentException($message, $request, $response);
-        }
         
         // Not found
         if ($status === 404) return null;
@@ -261,9 +337,55 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
         if ($status >= 500) throw new ServerException($message, $request, $response);
         
         // Successful
+        return $this->parseResponseSuccesss($data, $request, $response, $options);
+    }
+    
+    /**
+     * Assert that the response can be parsed
+     * 
+     * @param Request  $request
+     * @param Response $response
+     * @param array    $options
+     */
+    protected function parseResponseAssert($request, $response, $options)
+    {
+        $parse = $options['parse'];
+        list($contentType) = preg_replace('/\s*;.*$/', '', $response->getHeader('Content-Type')) + [null];
+        
+        // Only JSON is currently supported
+        if ($parse !== 'application/json') {
+            throw new \Exception("Parsing is only supported for 'application/json', not '{$parse}'");
+        }
+        
+        if (!isset($contentType)) {
+            trigger_error("Server response doesn't specify the content type, assuming {$parse}", E_USER_NOTICE);
+        }
+
+        if (!in_array($contentType, [$parse, 'text/plain'])) {
+            $message = "Server responded with '$contentType', while expecting '$parse'";
+            throw new InvalidContentException($message, $request, $response);
+        }
+    }
+    
+    /**
+     * Parse the response of a success request
+     * 
+     * @param mixed    $data
+     * @param Request  $request
+     * @param Response $response
+     * @param array    $options
+     * @return type
+     */
+    protected function parseResponseSuccesss($data, $request, $response, $options)
+    {
         if (!isset($data)) {
             $message = "Corrupt JSON response: " . json_last_error_msg();
             throw new InvalidContentException($message, $request, $response);
+        }
+        
+        if (!empty($options['expected_type']) && gettype($data) !== $options['expected_type']) {
+            $message = "Was expecting an array for " . $request->getUri() . ", but got a " . gettype($data);
+            throw new UnexpectedContentException($message, $request, $response);
         }
         
         return $data;

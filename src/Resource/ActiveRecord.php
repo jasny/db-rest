@@ -10,8 +10,8 @@ use Jasny\DB\Entity,
  */
 interface ActiveRecord extends
     Entity,
-    Entity\Identifiable,
     Entity\ActiveRecord,
-    Entity\UniqueProperties,
+    Entity\Identifiable,
+    Entity\SelfAware,
     Dataset
 { }

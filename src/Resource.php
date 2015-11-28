@@ -6,8 +6,8 @@ use Jasny\DB\Entity,
     Jasny\Meta\Introspection,
     Jasny\Meta\TypedObject,
     Jasny\DB\FieldMapping,
-    Jasny\DB\FieldMap;
-
+    Jasny\DB\FieldMap,
+    Jansy\DB\REST\Dataset;
 /**
  * Base class for REST Resources
  */
@@ -19,8 +19,9 @@ class Resource implements
     TypedObject,
     FieldMapping
 {
-    use Resource\Basics,
+    use Resource\MetaImplementation,
         Resource\LazyLoading,
+        Dataset\Implementation,
         FieldMap,
         Entity\Meta
     {
