@@ -2,7 +2,12 @@
 
 namespace Jasny\DB\REST;
 
+use Jasny\DB\REST\Client;
+
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\Middleware;
 
 /**
  * Tests for Jasny\DB\Rest\Client
@@ -72,6 +77,19 @@ class ClientTest extends \PHPUnit_Framework_TestCase
         $this->assertContains('parse', $names);
     }
 
+    /**
+     * Test Client::createRequest
+     */
+    public function testCreateRequest()
+    {
+        $client = new Client('http://www.example.com/');
+        $request = $client->createRequest('ZIF', '/items/:id', ['id' => 10, 'foo' => 'bar']);
+        
+        $this->assertInstanceOf(Request::class, $request);
+        $this->assertSame('ZIF', $request->getMethod());
+        $this->assertSame('http://www.example.com/items/10?foo=bar', (string)$request->getUri());
+    }
+    
     
     /**
      * Test Client::request() with `data` option as GET request
@@ -389,7 +407,7 @@ JSON;
         $history = [];
         $client = $this->getClientWithMockHandler([$response], $history);
         
-        $result = $client->get('/foo/1', ['parse' => 'application/json']);
+        $result = $client->get('/foo/1', ['parse' => 'application/json', 'expected_type' => 'object']);
         
         $this->assertInstanceOf('stdClass', $result);
         $this->assertEquals((object)[
@@ -472,6 +490,20 @@ JSON;
         $client = $this->getClientWithMockHandler([$response]);
         
         $client->get('/foo/1', ['parse' => 'application/json']);
+    }
+
+    /**
+     * Test parse middleware with an expected type of data
+     * 
+     * @expectedException Jasny\DB\REST\UnexpectedContentException
+     * @expectedExceptionMessage Was expecting a object for `GET http://www.example.com/foo/1`, but got a string
+     */
+    public function testParseMiddleware_UnexpectedType()
+    {
+        $response = new Response(200, ['Content-Type' => 'application/json'], '"foo"');
+        $client = $this->getClientWithMockHandler([$response]);
+        
+        $client->get('/foo/1', ['parse' => 'application/json', 'expected_type' => 'object']);
     }
 
     /**

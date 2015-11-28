@@ -81,18 +81,21 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
     }
 
     /**
-     * Create a request object
+     * Create a request object.
+     * 
+     * <i>For internal use only</i>
+     * 
      * @ignore
      * 
      * @param string $method
-     * @param string $object
+     * @param string $uri
      * @param array  $query
      * @return Request
      */
-    public function createRequest($method, $uri, $query)
+    public function createRequest($method, $uri, array $query = [])
     {
-        $uri = $thist->getConfig('base_uri') . $uri;
-        return new Request($method, $db::bindUri($uri, $query));
+        $uri = rtrim($this->getConfig('base_uri'), '/') . static::bindUri($uri, $query);
+        return new Request($method, $uri);
     }
 
     /**
@@ -384,7 +387,8 @@ class Client extends \GuzzleHttp\Client implements Connection, Connection\Namabl
         }
         
         if (!empty($options['expected_type']) && gettype($data) !== $options['expected_type']) {
-            $message = "Was expecting an array for " . $request->getUri() . ", but got a " . gettype($data);
+            $message = "Was expecting a {$options['expected_type']} for `" . $request->getMethod() . " " .
+                $request->getUri() . "`, but got a " . gettype($data);
             throw new UnexpectedContentException($message, $request, $response);
         }
         
