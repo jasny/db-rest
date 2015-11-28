@@ -12,16 +12,23 @@ class ImplementationStub implements Entity, Entity\Identifiable
 {
     use Implementation {
         Implementation::getDB as protected _getDB;
+        Implementation::getResourceClass as protected _getResourceClass;
     }
 
     public static $db;
     public static $uri;
-
+    public static $resourceClass;
+    
     public $foo;
     
     protected static function getDB()
     {
         return static::$db ?: static::_getDB();
+    }
+    
+    protected static function getResourceClass()
+    {
+        return static::$resourceClass ?: static::_getResourceClass();
     }
     
     protected static function idToFilter($id)

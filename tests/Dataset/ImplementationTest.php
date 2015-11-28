@@ -2,6 +2,7 @@
 
 namespace Jasny\DB\REST\Resource;
 
+use Jasny\DB\Entity;
 use Jasny\DB\EntitySet;
 use Jasny\DB\REST\Client;
 use GuzzleHttp\Psr7\Response;
@@ -23,6 +24,7 @@ class ImplementationTest extends \PHPUnit_Framework_TestCase
     {
         Dataset::$db = null;
         Dataset::$uri = null;
+        Dataset::$resourceClass = null;
     }
     
     
@@ -293,6 +295,31 @@ class ImplementationTest extends \PHPUnit_Framework_TestCase
         Phake::verify(Dataset::$db)->get('/items', $options);
         
         $this->assertSame([1 => 'hello 1', 2 => 'hello 2'], $result);
+    }
+    
+    /**
+     * Test Dataset\Implementation::fetchPairs()
+     * 
+     * @expectedException LogicException
+     * @expectedExceptionMessage entities aren't identifiable
+     */
+    public function testFetchPairs_NotIdentifiable()
+    {
+        Dataset::$resourceClass = get_class(Phake::mock(Entity::class));
+        Dataset::fetchPairs();
+    }
+    
+    
+    /**
+     * Test Dataset\Implementation::fetchPairs()
+     * 
+     * @expectedException LogicException
+     * @expectedExceptionMessage entities can't be casted to a string
+     */
+    public function testFetchPairs_NotCastable()
+    {
+        Dataset::$resourceClass = get_class(Phake::mock(Entity\Identifiable::class));
+        Dataset::fetchPairs();
     }
     
     /**
