@@ -2,16 +2,16 @@
 
 namespace Jasny\DB\REST\Resource;
 
-use GuzzleHttp\Psr7\Response;
+use Jasny\DB\REST\Client;
 use Jasny\DB\REST\Resource\BasicImplementationStub as Resource;
+
+use Phake;
 
 /**
  * Test for Jasny\DB\REST\Resource\BasicImplementation
  */
 class BasicImplementationTest extends \PHPUnit_Framework_TestCase
 {
-    use \Jasny\DB\REST\CreateMockClient;
-
     /**
      * @var object
      */
@@ -115,12 +115,9 @@ class BasicImplementationTest extends \PHPUnit_Framework_TestCase
         $this->resource->title = 'bar';
         
         $history = [];
-        $response = new Response(200, ['Content-Type' => 'application/json'], '{"id":10,"title":"bar","status":1}');
-        Resource::$db = $this->getClientWithMockHandler(
-            [$response],
-            $history,
-            ['headers' => ['Content-Type' => 'application/json']
-        ]);
+        Resource::$db = Phake::mock(Client::class);
+        
+        Phake::when(Resource::$db)->
         
         $ret = $this->resource->save();
         $this->assertSame($this->resource, $ret);
